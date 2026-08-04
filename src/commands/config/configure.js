@@ -8,7 +8,9 @@ const { saveStorage } = require("../../utils/storage");
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("configure")
-    .setDescription("Configura o canal onde as informações serão publicadas.")
+    .setDescription(
+      "Configura o canal onde as informações serão publicadas neste servidor.",
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption((option) =>
       option
@@ -20,11 +22,19 @@ module.exports = {
 
   async execute(interaction) {
     const channel = interaction.options.getChannel("canal");
+    const guildId = interaction.guildId;
 
-    saveStorage({ channelId: channel.id, messageId: null });
+    saveStorage((data) => {
+      if (!data.guilds) data.guilds = {};
+      data.guilds[guildId] = {
+        channelId: channel.id,
+        messageId: null,
+      };
+      return data;
+    });
 
     await interaction.reply({
-      content: `✅ Canal configurado com sucesso para ${channel}! A mensagem de status será gerada em breve.`,
+      content: `✅ Canal deste servidor configurado com sucesso para ${channel}!`,
       flags: 64,
     });
   },

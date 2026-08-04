@@ -3,6 +3,7 @@ const { EmbedBuilder, ActivityType } = require("discord.js");
 const { getStorage, saveStorage } = require("../utils/storage");
 
 const API_URL = process.env.API_URL;
+let lastMapName = null;
 
 async function fetchServerInfo() {
   try {
@@ -25,9 +26,7 @@ async function fetchServerInfo() {
 }
 
 async function updateDashboard(client) {
-  const { channelId, messageId } = getStorage();
-
-  if (!channelId) return;
+  const storage = getStorage();
 
   const data = await fetchServerInfo();
   if (!data) return;
@@ -64,6 +63,31 @@ async function updateDashboard(client) {
     status: "online",
   });
 
+  if (lastMapName !== mapName) {
+    lastMapName = mapName;
+
+    if (storage.notifications && storage.notifications.length > 0) {
+      const targets = storage.notifications.filter(
+        (n) => n.mapName.toLowerCase() === mapName.toLowerCase(),
+      );
+
+      for (const target of targets) {
+        try {
+          const user = await client.users.fetch(target.userId);
+          if (user) {
+            await user.send(
+              `🎮 **Aviso de Mapa!** O mapa **${mapName}** está rodando agora no servidor **${serverName}**!\nPlayers: \`${numPlayers}/${maxPlayers}\` | Modo: \`${gameMode}\``,
+            );
+          }
+        } catch (err) {
+          console.log(
+            `Não foi possível enviar DM para o usuário ID ${target.userId}.`,
+          );
+        }
+      }
+    }
+  }
+
   const embed = new EmbedBuilder()
     .setTitle(`🎮 ${serverName}`)
     .setColor("#2F3136")
@@ -81,23 +105,39 @@ async function updateDashboard(client) {
     })
     .setTimestamp();
 
-  try {
-    const channel = await client.channels.fetch(channelId).catch(() => null);
-    if (!channel) return;
+  if (!storage.guilds) return;
 
-    let targetMessage = null;
-    if (messageId) {
-      targetMessage = await channel.messages.fetch(messageId).catch(() => null);
-    }
+  for (const [guildId, config] of Object.entries(storage.guilds)) {
+    if (!config.channelId) continue;
 
-    if (targetMessage) {
-      await targetMessage.edit({ embeds: [embed] });
-    } else {
-      const newMessage = await channel.send({ embeds: [embed] });
-      saveStorage({ messageId: newMessage.id });
+    try {
+      const channel = await client.channels
+        .fetch(config.channelId)
+        .catch(() => null);
+      if (!channel) continue;
+
+      let targetMessage = null;
+      if (config.messageId) {
+        targetMessage = await channel.messages
+          .fetch(config.messageId)
+          .catch(() => null);
+      }
+
+      if (targetMessage) {
+        await targetMessage.edit({ embeds: [embed] });
+      } else {
+        const newMessage = await channel.send({ embeds: [embed] });
+
+        saveStorage((currentData) => {
+          if (currentData.guilds && currentData.guilds[guildId]) {
+            currentData.guilds[guildId].messageId = newMessage.id;
+          }
+          return currentData;
+        });
+      }
+    } catch (error) {
+      console.error(`Erro ao atualizar no servidor ${guildId}:`, error.message);
     }
-  } catch (error) {
-    console.error("Erro ao atualizar a mensagem no canal:", error.message);
   }
 }
 
